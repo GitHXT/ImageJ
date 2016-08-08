@@ -1,0 +1,87 @@
+//To determine colocalisation of NK cells and DAPI by first thresholding image and subsequently overlapping images using the "Image Calculation" "AND" function"
+
+//If arg is true, the interpreter enters batch mode and images are not displayed, allowing the macro to run up to 20 times faster. If arg is false, exits batch mode and displays the active image in a window. ImageJ exits batch mode when the macro terminates if there is nosetBatchMode(false) call. Note that a macro should not call setBatchMode(true) more than once.
+setBatchMode(true)
+
+//ask user to select source directory
+dir = getDirectory("Select Source Directory");
+
+//generate file list for batch processing
+list = getFileList(dir);
+Array.sort(list);
+
+DirDAPI = dir+"DAPI"
+File.makeDirectory(DirDAPI);
+outDir=getDirectory("Choose directory to save DAPI");
+
+//Prepare a log table for the data to be logged to
+tableTitle="Cell Population";
+tableTitle2="["+tableTitle+"]";
+run("Table...", "name="+tableTitle2+" width=600 height=250");
+print(tableTitle2, "\\Headings:Image Name\tTotal Cells (DAPI)\tNK\tNK DAPI\tPercNK DAPI over DAPI\tNK DAPI per 1k DAPI");
+
+//loop for all images in the selected directory
+for(i=0;i<list.length;i++){
+		filename = dir +list[i];
+		
+		//Replace file format to capture either lsm or tif files
+			if (endsWith(filename, "tif")) 
+			
+			{open(filename);
+			
+			//store the image name in the nameStore variable
+			nameStore = getTitle();
+
+			//split the channels
+			run("Z Project...", "projection=[Max Intensity]");
+			run("Split Channels");
+
+			//Store variables for each of the channel names; names switched around for LSM710 settings
+			DAPIImage = "C1-MAX_"+nameStore;
+			NKImage = "C2-MAX_"+nameStore;
+			
+				//Thresholding of NK
+				selectWindow(NKImage);
+				setAutoThreshold("MaxEntropy dark");
+				setOption("BlackBackground", true);
+				run("Convert to Mask");
+				run("Watershed");
+				run("Analyze Particles...", "size=12-Infinity circularity=0.00-1.00 show=Nothing exclude clear include");
+				NKCount = nResults;
+	
+				//Thresholding of DAPI; Changed to IsoData from Moments
+				selectWindow(DAPIImage);
+				setAutoThreshold("MaxEntropy dark");
+				setOption("BlackBackground", true);
+				run("Convert to Mask");
+				run("Watershed");
+				//DAPI size count starts form 8; justification is that nuclei is smaller than perimeter of cell...
+				run("Analyze Particles...", "size=8-Infinity circularity=0.00-1.00 show=Nothing exclude clear include");
+				DAPICount = nResults;
+
+								selectWindow(DAPIImage);
+								run("Duplicate...", " ");
+								rename("DAPI_"+nameStore);								
+								//SAVE FUNCTION TO BE PLACED HERE! I will use this as a screen to see if my DAPI thresholding was correct.
+								saveAs("Tiff", outDir+getTitle);
+
+	
+						//Colocalisation of NK and DAPI using image calculation "and" function
+						imageCalculator("and create", "C1-MAX_"+nameStore, "C2-MAX_"+nameStore);			
+						//Put code below if counting of colocalised NK+ DAPI+ is required. Size 10 used; can be less stringent after DAPI overlapping.
+						run("Analyze Particles...", "size=10-Infinity circularity=0.00-1.00 show=Nothing exclude clear include");
+						NKDAPICount = nResults;
+
+				//Calculate percentage values
+				NKper1kDAPI = (NKDAPICount/DAPICount)*1000;
+				PercNKoverDAPI = (NKDAPICount/DAPICount)*100;
+
+				//Input values into table
+				print(tableTitle2, nameStore + "\t" + DAPICount + "\t" + NKCount + "\t" + NKDAPICount + "\t" + PercNKoverDAPI + "\t" + NKper1kDAPI);
+
+				//close all open images
+				run("Close All");
+				close("Results");
+
+}
+}
