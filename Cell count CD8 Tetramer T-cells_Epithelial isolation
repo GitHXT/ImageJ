@@ -1,0 +1,154 @@
+
+//If arg is true, the interpreter enters batch mode and images are not displayed, allowing the macro to run up to 20 times faster. If arg is false, exits batch mode and displays the active image in a window. ImageJ exits batch mode when the macro terminates if there is nosetBatchMode(false) call. Note that a macro should not call setBatchMode(true) more than once.
+setBatchMode(true)
+
+//ask user to select source directory
+dir = getDirectory("Select Source Directory");
+
+//generate file list for batch processing
+list = getFileList(dir);
+Array.sort(list);
+
+DirMask = dir+"Mask"
+File.makeDirectory(DirMask);
+outDir=getDirectory("Choose directory to save mask");
+
+//Prepare a log table for the data to be logged to
+tableTitle="Cell Population";
+tableTitle2="["+tableTitle+"]";
+run("Table...", "name="+tableTitle2+" width=600 height=250");
+print(tableTitle2, "\\Headings:Image Name\tTotal Cells (DAPI)\tTotal CD8\tTotal CD8Tet DAPI\tPerc CD8Tet over CD8\tTotal CD8 per 1kDAPI\tTotal CD8Tet per 1kDAPI\tPerc CD8 Epitelium\tPerc CD8 Lamina\tPerc CD8Tet Epitelium\tPerc CD8Tet Lamina");
+
+//loop for all images in the selected directory
+for(i=0;i<list.length;i++){
+		filename = dir +list[i];
+		
+		//Replace file format to capture either lsm or tif files
+			if (endsWith(filename, "tif")) 
+			
+			{open(filename);
+			
+			//store the image name in the nameStore variable
+			nameStore = getTitle();
+
+			//split the channels
+			run("Z Project...", "projection=[Max Intensity]");
+			run("Split Channels");
+
+			//Store variables for each of the channel names
+
+			DAPIImage = "C1-MAX_"+nameStore;
+			TetImage = "C2-MAX_"+nameStore;
+			CD8Image = "C3-MAX_"+nameStore;
+				
+				//Thresholding of CD8
+				selectWindow(CD8Image);
+				setAutoThreshold("MaxEntropy dark");
+				setOption("BlackBackground", true);
+				run("Convert to Mask");
+				run("Watershed");
+
+				//Thresholding of Tet
+				selectWindow(TetImage);
+				setAutoThreshold("MaxEntropy dark");
+				setOption("BlackBackground", true);
+				run("Convert to Mask");
+				run("Watershed");
+
+				//Thresholding of DAPI; changed from MaxEntropy to IsoData
+				selectWindow(DAPIImage);
+				setAutoThreshold("IsoData dark");
+				setOption("BlackBackground", true);
+				run("Convert to Mask");
+				run("Watershed");
+				//DAPI size count starts form 8; justification is that nuclei is smaller than perimeter of cell...
+				run("Analyze Particles...", "size=8-Infinity circularity=0.00-1.00 show=Nothing exclude clear include");
+				DAPICount = nResults;
+				
+							//This bit creates the mask to isolate the epidermis manually
+									
+								selectWindow(DAPIImage);
+								run("Duplicate...", " ");
+								rename("DAPI mask");
+				
+										//showing and hiding DAPImask with functions below don't work. The counts are always the same despite regions varying from one another.
+										//Maybe try setBatchMode("exit and display")
+										setBatchMode("show");
+											setTool("BRUSH");
+											call("ij.gui.Toolbar.setBrushSize", "80");
+											waitForUser("Create mask for epidermis", "Click OK when mask is complete");
+											run("Clear Outside");
+										setBatchMode("hide");
+								
+								//Using the image calculation function to create the epidermis mask
+								imageCalculator("and create", "C1-MAX_"+nameStore, "DAPI mask");
+								rename("DAPIEpidermis_"+nameStore);
+								//SAVE FUNCTION TO BE PLACED HERE! This is to ensure that I have saved records of the masking, which will be almost impossible to reproduce down the line.
+								saveAs("Tiff", outDir+getTitle);
+								DAPIepi = getTitle;
+								
+				//Colocalisation of WHOLE IMAGE CD8 and Tet using image calculation "and" function
+				imageCalculator("and create", "C3-MAX_"+nameStore, "C2-MAX_"+nameStore);
+				rename("CD8Tetcoloc");
+				CD8TetImage = "CD8Tetcoloc";
+				
+												//Counting CD8+ Tet+ and CD8+ cells in EPITHELIUM
+												
+													//NOT REQUIRED AT THIS POINT. Counting the epidermal selected region for DAPI+ cells. 
+													//DAPI size count uses 8 as this is a single signal, and requires stricter size exclusion to avoid false positives
+													//run("Analyze Particles...", "size=8-Infinity circularity=0.00-1.00 show=Nothing exclude clear include");
+													//DAPIepiCount = nResults;				
+
+													//Counting CD8+ in epidermis; colocalisation of CD8 and DAPIepi using image calculation "and" function
+													imageCalculator("and create", "C3-MAX_"+nameStore, DAPIepi);
+													rename("CD8DAPIepi");	
+													CD8DAPIepiImage = "CD8DAPIepi";
+													run("Analyze Particles...", "size=8-Infinity show=[Bare Outlines] exclude clear include summarize");
+													//I used 8 as particle size to be stricter, as some CD8 signals are not full (i.e. partial signals)
+													CD8DAPIepiCount = nResults;
+
+													//Counting CD8+ Tet+ in epidermis; Colocalisation of CD8+ Tet+ and DAPI using image calculation "and" function
+													imageCalculator("and create", DAPIepi, CD8TetImage);
+													run("Analyze Particles...", "size=4-Infinity show=[Bare Outlines] exclude clear include summarize");
+													//I used 4 as particle size because the triple coloc reduces the size
+													//Technically can be abit looser with the size restriction as triple signal has been applied, giving less chance for a false positive
+													CD8TetDAPIepiCount = nResults;
+
+									//Counting CD8+ Tet+ and CD8+ cells in WHOLE IMAGE
+												
+										//Counting CD8+ in whole image; colocalisation of CD8 and DAPIepi using image calculation "and" function
+										imageCalculator("and create", "C3-MAX_"+nameStore, "C1-MAX_"+nameStore);	
+										rename("CD8DAPIwhole");
+										CD8DAPIwholeImage = "CD8DAPIwhole";
+										run("Analyze Particles...", "size=8-Infinity show=[Bare Outlines] exclude clear include summarize");
+										//I used 8 as particle size to be stricter, as some CD8 signals are not full (i.e. partial signals)
+										CD8DAPIwholeCount = nResults;
+	
+										//Counting CD8+ Tet+ in whole image; Colocalisation of CD8+ Tet+ and DAPI using image calculation "and" function
+										imageCalculator("and create", "C1-MAX_"+nameStore, CD8TetImage);	
+										run("Analyze Particles...", "size=4-Infinity show=[Bare Outlines] exclude clear include summarize");
+										//I used 4 as particle size because the triple coloc reduces the size
+										//Technically can be abit looser with the size restriction as triple signal has been applied, giving less chance for a false positive
+										CD8TetDAPIwholeCount = nResults;
+
+				//Calculate percentage values
+				
+				WholeCD8per1kDAPI = (CD8DAPIwholeCount/DAPICount)*1000;
+				WholeCD8Tetper1kDAPI = (CD8TetDAPIwholeCount/DAPICount)*1000;
+				WholePercTetoverCD8 = (CD8TetDAPIwholeCount/CD8DAPIwholeCount)*100;
+
+				PercEpiCD8overWholeCD8 = (CD8DAPIepiCount/CD8DAPIwholeCount)*100;
+				PercLaminaCD8overWholeCD8 = ((CD8DAPIwholeCount-CD8DAPIepiCount)/CD8DAPIwholeCount)*100;
+				
+				PercEpiCD8TetoverWholeCD8Tet = (CD8TetDAPIepiCount/CD8TetDAPIwholeCount)*100;
+				PercLaminaCD8TetoverWholeCD8Tet = ((CD8TetDAPIwholeCount-CD8TetDAPIepiCount)/CD8TetDAPIwholeCount)*100;
+
+				//Input values into table
+				print(tableTitle2, nameStore + "\t" + DAPICount + "\t" + CD8DAPIwholeCount + "\t" + CD8TetDAPIwholeCount + "\t" + WholePercTetoverCD8 + "\t" + WholeCD8per1kDAPI + "\t" + WholeCD8Tetper1kDAPI + "\t" + PercEpiCD8overWholeCD8 + "\t" + PercLaminaCD8overWholeCD8 + "\t" + PercEpiCD8TetoverWholeCD8Tet + "\t" + PercLaminaCD8TetoverWholeCD8Tet);
+
+				//close all open images
+				run("Close All");
+				close("Results");
+
+}
+}
