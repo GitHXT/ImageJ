@@ -1,0 +1,51 @@
+//To use CD31 outline as endothelial cell boundaries, and subsequently using this outline as a mask to measure VCAM mean fluorescence intensity.
+
+//If arg is true, the interpreter enters batch mode and images are not displayed, allowing the macro to run up to 20 times faster. If arg is false, exits batch mode and displays the active image in a window. ImageJ exits batch mode when the macro terminates if there is nosetBatchMode(false) call. Note that a macro should not call setBatchMode(true) more than once.
+setBatchMode(true)
+
+//ask user to select source directory
+dir = getDirectory("Select Source Directory");
+
+//generate file list for batch processing
+list = getFileList(dir);
+Array.sort(list);
+
+//loop for all images in the selected directory
+for(i=0;i<list.length;i++){
+		filename = dir +list[i];
+		
+		//Replace file format to capture either lsm or tif files
+			if (endsWith(filename, "tif")) 
+			
+			{open(filename);
+			
+			//store the image name in the nameStore variable
+			nameStore = getTitle();
+
+			//split the channels; Average used as this may be more representative of the VCAM intensity measurements 
+			run("Z Project...", "projection=[Average Intensity]");
+			run("Split Channels");
+
+			//Store variables for each of the channel names; names switched around for LSM710 settings
+			DAPIImage = "C1-AVG_"+nameStore;
+			CD31Image = "C2-AVG_"+nameStore;
+			selectWindow("C3-AVG_"+nameStore);
+			rename(nameStore+"_VCAM");
+			VCAMImage = nameStore+"_VCAM";
+			
+				//Thresholding of CD31, and subsequently using this as a mask for the VCAM channel
+				selectWindow(CD31Image);
+				setAutoThreshold("Default dark");
+				setOption("BlackBackground", true);
+				run("Convert to Mask");
+				run("Set Measurements...", "area mean integrated display redirect=["+ VCAMImage +"] decimal=3");
+				//"include holes" features disabled, as this will fill in holes, which is not wanted for blood vessels.
+				run("Analyze Particles...", "size=100-Infinity show=Nothing display exclude");
+
+
+				//close all open images
+				run("Close All");
+				//close("Results");
+
+}
+}
