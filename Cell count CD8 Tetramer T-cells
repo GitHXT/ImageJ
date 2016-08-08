@@ -1,0 +1,98 @@
+//To determine colocalisation of CD8a+ and Tet+ cells by first thresholding image and subsequently overlapping images using the "Image Calculation" "AND" function"
+
+//If arg is true, the interpreter enters batch mode and images are not displayed, allowing the macro to run up to 20 times faster. If arg is false, exits batch mode and displays the active image in a window. ImageJ exits batch mode when the macro terminates if there is nosetBatchMode(false) call. Note that a macro should not call setBatchMode(true) more than once.
+setBatchMode(true)
+
+//ask user to select source directory
+dir = getDirectory("Select Source Directory");
+
+//generate file list for batch processing
+list = getFileList(dir);
+Array.sort(list);
+
+//Prepare a log table for the data to be logged to
+tableTitle="Cell Population";
+tableTitle2="["+tableTitle+"]";
+run("Table...", "name="+tableTitle2+" width=600 height=250");
+print(tableTitle2, "\\Headings:Image Name\tTotal Cells (DAPI)\tCD8\tCD8 Tet DAPI\tPercTetoverCD8\tCD8per1kDAPI\tCD8Tetper1kDAPI");
+
+//loop for all images in the selected directory
+for(i=0;i<list.length;i++){
+		filename = dir +list[i];
+		
+		//Replace file format to capture either lsm or tif files
+			if (endsWith(filename, "tif")) 
+			
+			{open(filename);
+			
+			//store the image name in the nameStore variable
+			nameStore = getTitle();
+
+			//split the channels
+			run("Z Project...", "projection=[Max Intensity]");
+			run("Split Channels");
+
+			//Store variables for each of the channel names
+			DAPIImage = "C1-MAX_"+nameStore;
+			TetImage = "C2-MAX_"+nameStore;
+			CD8Image = "C3-MAX_"+nameStore;
+			
+				//Thresholding of CD8
+				selectWindow(CD8Image);
+				setAutoThreshold("MaxEntropy dark");
+				setOption("BlackBackground", true);
+				run("Convert to Mask");
+				run("Watershed");
+					//I removed these two lines below because they count solely on CD8 signal without DAPI. This may be less specific. I added new lines below to account for DAPI signal with CD8
+						//run("Analyze Particles...", "size=10-Infinity circularity=0.00-1.00 show=Nothing exclude clear include");
+						//CD8Count = nResults;
+	
+				//Thresholding of Tet
+				selectWindow(TetImage);
+				setAutoThreshold("MaxEntropy dark");
+				setOption("BlackBackground", true);
+				run("Convert to Mask");
+				run("Watershed");
+
+				//Thresholding of DAPI
+				selectWindow(DAPIImage);
+				setAutoThreshold("Li dark");
+				setOption("BlackBackground", true);
+				run("Convert to Mask");
+				run("Watershed");
+				//DAPI size count starts form 8; justification is that nuclei is smaller than perimeter of cell...
+				run("Analyze Particles...", "size=8-Infinity circularity=0.00-1.00 show=Nothing exclude clear include");
+				DAPICount = nResults;
+
+					//Colocalisation of CD8 and DAPI using image calculation "and" function - Gives a stricter CD8 count as opposed to just counting CD8 signal without DAPI coloc
+						imageCalculator("and create", "C3-MAX_"+nameStore, "C1-MAX_"+nameStore);	
+						rename("CD8DAPI");
+						CD8DAPIImage = "CD8DAPI";
+						run("Analyze Particles...", "size=10-Infinity circularity=0.00-1.00 show=Nothing exclude clear include");
+						CD8Count = nResults;
+	
+				//Colocalisation of CD8 and Tet using image calculation "and" function
+				imageCalculator("and create", "C3-MAX_"+nameStore, "C2-MAX_"+nameStore);	
+				//Put code below if counting of colocalised CD8+ Tet+ is required. I excluded this at this point because I only want to count DAPI+ cells as well
+				//run("Analyze Particles...", "size=4-Infinity show=Outlines display exclude clear include summarize");
+				CD8TetImage = "Result of C3-MAX_"+nameStore;
+
+				//Colocalisation of CD8+ Tet+ and DAPI using image calculation "and" function
+				imageCalculator("and create", "C1-MAX_"+nameStore, "Result of C3-MAX_"+nameStore);	
+				run("Analyze Particles...", "size=4-Infinity show=Outlines exclude clear include summarize");
+				CD8TetCount = nResults;
+
+				//Calculate percentage values
+				CD8per1kDAPI = (CD8Count/DAPICount)*1000;
+				CD8Tetper1kDAPI = (CD8TetCount/DAPICount)*1000;
+				PercTetoverCD8 = (CD8TetCount/CD8Count)*100;
+
+				//Input values into table
+				print(tableTitle2, nameStore + "\t" + DAPICount + "\t" + CD8Count + "\t" + CD8TetCount + "\t" + PercTetoverCD8 + "\t" + CD8per1kDAPI + "\t" + CD8Tetper1kDAPI);
+
+				//close all open images
+				run("Close All");
+				close("Results");
+
+}
+}
