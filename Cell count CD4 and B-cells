@@ -1,0 +1,93 @@
+//This is to quantify CD4 cells in AF488 channel and B-cells in AF647; CD8 and Tetramer not quantified, although AF555 Tet signal is present in Ch2
+
+//If arg is true, the interpreter enters batch mode and images are not displayed, allowing the macro to run up to 20 times faster. If arg is false, exits batch mode and displays the active image in a window. ImageJ exits batch mode when the macro terminates if there is nosetBatchMode(false) call. Note that a macro should not call setBatchMode(true) more than once.
+setBatchMode(true)
+
+//ask user to select source directory
+dir = getDirectory("Select Source Directory");
+
+//generate file list for batch processing
+list = getFileList(dir);
+Array.sort(list);
+
+//Prepare a log table for the data to be logged to
+tableTitle="Cell Population";
+tableTitle2="["+tableTitle+"]";
+run("Table...", "name="+tableTitle2+" width=600 height=250");
+print(tableTitle2, "\\Headings:Image Name\tTotal Cells (DAPI)\tBcell\tCD4\tBcellper1kDAPI\tCD4per1kDAPI");
+
+//loop for all images in the selected directory
+for(i=0;i<list.length;i++){
+		filename = dir +list[i];
+		
+		//Replace file format to capture either lsm or tif files
+			if (endsWith(filename, "tif")) 
+			
+			{open(filename);
+			
+			//store the image name in the nameStore variable
+			nameStore = getTitle();
+
+			//split the channels
+			run("Z Project...", "projection=[Max Intensity]");
+			run("Split Channels");
+
+			//Store variables for each of the channel names
+			BcellImage = "C1-MAX_"+nameStore;
+			TetImage = "C2-MAX_"+nameStore;
+			CD4Image = "C3-MAX_"+nameStore;
+			DAPIImage = "C4-MAX_"+nameStore;
+			
+				//Thresholding of B cells
+				selectWindow(BcellImage);
+				setAutoThreshold("MaxEntropy dark");
+				setOption("BlackBackground", true);
+				run("Convert to Mask");
+				run("Watershed");
+	
+				//Thresholding of CD4
+				selectWindow(CD4Image);
+				setAutoThreshold("Triangle dark");
+				setOption("BlackBackground", true);
+				run("Convert to Mask");
+				run("Watershed");
+
+				//Thresholding of DAPI
+				selectWindow(DAPIImage);
+				setAutoThreshold("Li dark");
+				setOption("BlackBackground", true);
+				run("Convert to Mask");
+				run("Watershed");
+				//DAPI size count starts form 8; justification is that nuclei is smaller than perimeter of cell...
+				run("Analyze Particles...", "size=8-Infinity circularity=0.00-1.00 show=Nothing exclude clear include");
+				DAPICount = nResults;
+
+
+					//Colocalisation of B-cells and DAPI using image calculation "and" function
+						imageCalculator("and create", "C1-MAX_"+nameStore, "C4-MAX_"+nameStore);	
+						rename("BcellDAPI");
+						BcellDAPIImage = "BcellDAPI";
+						run("Analyze Particles...", "size=12-Infinity circularity=0.00-1.00 show=Nothing exclude clear include");
+						BcellCount = nResults;
+	
+					//Colocalisation of CD4 and DAPI using image calculation "and" function
+						imageCalculator("and create", "C3-MAX_"+nameStore, "C4-MAX_"+nameStore);
+						rename("CD4DAPI");
+						CD4DAPIImage = "CD4DAPI";
+						run("Analyze Particles...", "size=12-Infinity circularity=0.70-1.00 show=Nothing exclude clear include");
+						CD4Count = nResults;
+
+
+				//Calculate percentage values
+				Bcellper1kDAPI = (BcellCount/DAPICount)*1000;
+				CD4per1kDAPI = (CD4Count/DAPICount)*1000;
+
+				//Input values into table
+				print(tableTitle2, nameStore + "\t" + DAPICount + "\t" + BcellCount + "\t" + CD4Count + "\t" + Bcellper1kDAPI + "\t" + CD4per1kDAPI);
+
+				//close all open images
+				run("Close All");
+				close("Results");
+
+}
+}
